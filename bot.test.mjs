@@ -10,7 +10,7 @@ test('consent, report persistence, and owner-only tracking',()=>{
  assert.equal(db.reports.length,1);
  const id=db.reports[0].id;
  respond(db,'bob','3'); assert.match(respond(db,'bob',id),/No report found/);
- respond(db,'alice','3'); assert.match(respond(db,'alice',id),/Saved locally/);
+ respond(db,'alice','3'); assert.match(respond(db,'alice',id),/Department: Environment & sanitation/);
 });
 test('cancel clears partial report and short descriptions are rejected',()=>{
  const db={sessions:{},reports:[]};

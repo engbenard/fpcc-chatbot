@@ -1,105 +1,41 @@
-import { randomUUID } from 'node:crypto';
-import { createReport, findReport } from './db.mjs';
-
-export const menu = `Welcome to Fort Portal City Council's chatbot prototype.
-
-1. Council services
-2. Report an issue
-3. Track my report
-4. Council contacts
-5. Request staff assistance
-6. Privacy information
-
-Reply with a number. Type MENU to start again.
-Prototype service: submitted reports are stored in the central FPCC pilot database but this is not yet an official council service channel.`;
-
-export async function respond(db, user, input) {
+import { init, createReport, survey, availableSlots, book } from './domain.mjs';
+export const menu = `Welcome to Fort Portal City Council's chatbot prototype.\n\n1. Council services\n2. Report an issue\n3. Track my report\n4. Council contacts\n5. Request staff assistance\n6. Privacy information\n7. Book an appointment\n8. Satisfaction survey\n\nReply with a number. Type MENU to start again.\nPilot service: reports are saved to the staff dashboard. No external officer notification is sent.`;
+export function respond(db, user, input) {
+  init(db);
   const text = input.trim(), key = text.toLowerCase();
   let session = db.sessions[user] ||= {};
-
-  if (['menu','hi','hello','start','cancel'].includes(key)) {
-    db.sessions[user] = {};
-    return menu;
-  }
-
+  if (['menu','hi','hello','start','cancel'].includes(key)) { db.sessions[user] = {}; return menu; }
   if (session.step === 'consent') {
-    if (key !== 'yes') {
-      db.sessions[user] = {};
-      return 'Nothing was saved. Type MENU to return.';
-    }
-    session.step = 'location';
-    return 'Where is the issue? Enter the division, road, or a nearby landmark. Do not include private home details.';
+    if (key !== 'yes') { db.sessions[user] = {}; return 'Nothing was saved. Type MENU to return.'; }
+    session.step = 'location'; return 'Where is the issue? Enter the division, road, or a nearby landmark. Do not include private home details. Optional map coordinates: latitude,longitude | landmark.';
   }
-
   if (session.step === 'location') {
     if (text.length < 3) return 'Please enter a location with at least 3 characters.';
-    session.location = text;
-    session.step = 'description';
-    return 'Describe the issue or the help you need (at least 10 characters). Do not include IDs, payment details, or medical information.';
+    session.location = text; session.step = 'description'; return 'Describe the issue or the help you need (at least 10 characters). Do not include IDs, payment details, or medical information.';
   }
-
   if (session.step === 'description') {
     if (text.length < 10) return 'Please provide a little more detail (at least 10 characters).';
-
-    const reference = 'FP-' + randomUUID().slice(0,8).toUpperCase();
-    const source = user.startsWith('demo:') ? 'web' : 'whatsapp';
-
-    const report = await createReport({
-      reference,
-      owner: user,
-      type: session.type,
-      location: session.location,
-      description: text,
-      source
-    });
-
-    db.sessions[user] = {};
-    return `Your reference is ${report.reference}.
-Status: ${report.status}.
-Your report has been saved in the FPCC pilot database.
-Type 3 to track it or MENU to return.`;
+    const coordinates = session.location.match(/^(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)\s*\|\s*(.+)$/);
+    const report = createReport(db,user,{type:session.type,location:coordinates?coordinates[3]:session.location,description:text,...(coordinates?{lat:coordinates[1],lng:coordinates[2]}:{})});
+    db.sessions[user] = {}; return `Your reference is ${report.id}.\nStatus: ${report.status}\nDepartment: ${report.department}\nSaved to the staff dashboard. No external officer notification has been sent.\nType 3 to track it or MENU to return.`;
   }
-
   if (session.step === 'track') {
     db.sessions[user] = {};
-    const report = await findReport(text, user);
-
-    if (!report) {
-      return 'No report found for this conversation. Check the reference, then type 3 to try again.';
-    }
-
-    const department = report.department ? `\nDepartment: ${report.department}` : '';
-    const assigned = report.assigned_to ? `\nAssigned to: ${report.assigned_to}` : '';
-    const priority = report.priority ? `\nPriority: ${report.priority}` : '';
-
-    return `${report.reference}
-Status: ${report.status}${department}${assigned}${priority}
-Created: ${new Date(report.created_at).toISOString()}
-Type MENU to return.`;
+    const report = db.reports.find(r => r.id === text.toUpperCase() && r.owner === user);
+    return report ? `${report.id}\n${report.status}\nDepartment: ${report.department}\nCreated: ${report.createdAt}${report.resolution ? "\nResolution: " + report.resolution : ""}${report.surveyRequestedAt && !report.survey ? "\nPlease rate your resolved complaint: type 8." : ""}\nType MENU to return.` : 'No report found for this conversation. Check the reference, then type 3 to try again.';
   }
-
-  if (key === '1' || key === 'services') {
-    return 'Council service topics:\n• Trading licences\n• Local revenue and fees\n• Building and planning enquiries\n• Waste collection and sanitation\n\nApproved requirements, fees, and office hours have not been configured. Type 5 to save an assistance request, or MENU.';
-  }
-
+  if (!session.step && (key === '1' || key === 'services')) { const services=db.services.filter(s=>s.published); return services.length?services.map(s=>`${s.name}\nRequirements: ${s.requirements}\nFees: ${s.fees}\nOffice: ${s.office}\nHours: ${s.hours}`).join('\n\n'):'The service directory is awaiting approved council information. Type 5 for assistance.'; }
+  if (session.step === 'surveyRef') {const r=db.reports.find(r=>r.id===text.toUpperCase()&&r.owner===user&&r.surveyRequestedAt&&!r.survey);if(!r)return 'No resolved report awaiting feedback was found for this conversation. Check the reference or type CANCEL.';session.reportId=r.id;session.step='surveyRating';return 'How satisfied are you with the resolution? Reply 1 (very dissatisfied) to 5 (very satisfied).';}
+  if (session.step === 'surveyRating') {try{survey(db,user,session.reportId,Number(text));db.sessions[user]={};return 'Thank you. Your feedback has been saved. Type MENU to return.';}catch(e){return e.message;}}
+  if (session.step === 'bookSlot') {try{const a=book(db,user,text.toUpperCase());db.sessions[user]={};return `Appointment booked: ${a.id}\n${a.office}\n${a.startsAt}\nLocation: ${a.location}\nType MENU to return.`;}catch(e){return e.message+' Type CANCEL to return.';}}
+  if (key === '7') {const slots=availableSlots(db).filter(s=>s.remaining>0);if(!slots.length)return 'No office appointment slots have been published yet. Type 4 for council contacts.';session.step='bookSlot';return slots.map(s=>`${s.id} · ${s.office} · ${s.startsAt} · ${s.remaining} available`).join('\n')+'\nReply with the slot ID to book. Your conversation identifier will be saved with the booking. Type CANCEL to stop.';}
+  if (key === '8') {session.step='surveyRef';return 'Enter the reference of your resolved report to leave feedback.';}
   if (['2','5','report','help','staff'].includes(key)) {
-    session.type = ['2','report'].includes(key) ? 'Issue report' : 'Staff assistance';
-    session.step = 'consent';
-    return 'This pilot stores your conversation identifier, location, description, submission time, and report status in the central FPCC pilot database. It does not yet guarantee that a council officer has been assigned. For emergencies, contact the appropriate emergency service directly.\n\nReply YES to continue, or CANCEL to stop.';
+    session.type = ['2','report'].includes(key) ? 'Issue report' : 'Staff assistance'; session.step = 'consent';
+    return 'This test stores your conversation identifier, location, description, and submission time on this computer. It makes your request visible to staff using this installation, but sends no external notification. For emergencies, contact the appropriate emergency service directly.\n\nReply YES to continue, or CANCEL to stop.';
   }
-
-  if (key === '3' || key === 'track') {
-    session.step = 'track';
-    return 'Enter your report reference (for example FP-1234ABCD).';
-  }
-
-  if (key === '4' || key === 'contacts') {
-    return 'Steven — Senior Communication Officer, FPCC\nWhatsApp / telephone: +256 782 442866\nOpen WhatsApp: https://wa.me/256782442866\n\nKazooba Joseph — Snr ICT Officer\nWhatsApp / telephone: +256 703 090388\nOpen WhatsApp: https://wa.me/256703090388\n\nEng. Benard Bright — ICT Officer\nWhatsApp / telephone: +256 779 079089\nOpen WhatsApp: https://wa.me/256779079089\n\nContacts supplied by the project owner. Reports are stored centrally, but automatic officer assignment is not yet enabled. Type MENU to return.';
-  }
-
-  if (key === '6' || key === 'privacy') {
-    return 'Prototype privacy: report details are stored in the central FPCC pilot database. Reports may include a conversation identifier (your phone number when connected to WhatsApp), location, description, source, status, and time. Conversation state and WhatsApp message de-duplication remain stored locally by the application. No automatic deletion policy is configured yet. Do not submit sensitive personal information. Type MENU to return.';
-  }
-
+  if (key === '3' || key === 'track') { session.step = 'track'; return 'Enter your report reference (for example FP-1234ABCD).'; }
+  if (key === '4' || key === 'contacts') return 'Steven — Senior Communication Officer, FPCC\nWhatsApp / telephone: +256 782 442866\nOpen WhatsApp: https://wa.me/256782442866\n\nKazooba Joseph — Snr ICT Officer\nWhatsApp / telephone: +256 703 090388\nOpen WhatsApp: https://wa.me/256703090388\n\nEng. Benard Bright — ICT Officer\nWhatsApp / telephone: +256 779 079089\nOpen WhatsApp: https://wa.me/256779079089\n\nContacts supplied by the project owner. Reports appear in the staff dashboard; no automatic WhatsApp message is sent to these officers. Office hours have not been configured. Type MENU to return.';
+  if (key === '6' || key === 'privacy') return 'Prototype privacy: reports and conversation state are stored locally in data/store.json. Reports include a conversation identifier (your phone number when connected to WhatsApp), location, description, and time. No automatic deletion is configured. The operator must define retention and access rules before public use. Do not submit sensitive personal information. Type MENU to return.';
   return menu;
 }
