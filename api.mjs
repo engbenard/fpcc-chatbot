@@ -12,12 +12,12 @@ export function createApi(root,dataDir,getDb,save,reply,body){
  const setCookie=(res,name,value,age)=>res.setHeader('Set-Cookie',`${name}=${value}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${age}${process.env.PUBLIC_HTTPS==='true'?'; Secure':''}`);
  return async function api(req,res,url){
   const db=getDb(),p=url.pathname;
-  if(!p.startsWith('/api/') && !['/','/app.js','/styles.css'].includes(p))return false;
+  if(!p.startsWith('/api/') && !['/','/app.js','/styles.css','/qr.png','/qr.svg','/qr-poster.png'].includes(p))return false;
   if(['POST','PATCH','DELETE'].includes(req.method)&&req.headers.origin&&req.headers.origin!==`${process.env.PUBLIC_HTTPS==='true'?'https':'http'}://${req.headers.host}`){reply(res,403,{error:'Origin not allowed'});return true;}
   let sid=cookie(req,'citizen');
   if(!sid||!db.clients[sid]||Date.parse(db.clients[sid])<Date.now()){sid=randomUUID();db.clients[sid]=new Date(Date.now()+30*86400000).toISOString();if(p==='/') {setCookie(res,'citizen',sid,30*86400);save();}}
   const owner='demo:'+sid;
-  if(req.method==='GET'&&['/','/app.js','/styles.css'].includes(p)){const name=p==='/'?'index.html':p.slice(1);reply(res,200,readFileSync(path.join(root,name),'utf8'),p.endsWith('.js')?'text/javascript':p.endsWith('.css')?'text/css':'text/html; charset=utf-8');return true;}
+  if(req.method==='GET'&&['/','/app.js','/styles.css','/qr.png','/qr.svg','/qr-poster.png'].includes(p)){const name=p==='/'?'index.html':p.slice(1);reply(res,200,readFileSync(path.join(root,name)),p.endsWith('.png')?'image/png':p.endsWith('.svg')?'image/svg+xml':p.endsWith('.js')?'text/javascript':p.endsWith('.css')?'text/css':'text/html; charset=utf-8');return true;}
   if(p==='/api/public'&&req.method==='GET'){reply(res,200,{stats:statistics(db),services:db.services.filter(s=>s.published),slots:availableSlots(db),pilot:true});return true;}
   if(p==='/api/staff/login'&&req.method==='POST'){
    const ip=req.socket.remoteAddress,entry=attempts.get(ip);if(entry&&entry.until>Date.now()&&entry.count>=5){reply(res,429,{error:'Too many attempts. Try again in 15 minutes.'});return true;}

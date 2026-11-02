@@ -68,3 +68,7 @@ Register `https://YOUR-HOST/webhook`, subscribe to messages and the correct What
 Run one Node process only. Requests are serialized and the JSON store is written through a temporary file. This is not a multi-server database or durable messaging queue. A crash or ambiguous Meta response can duplicate a WhatsApp reply. External alert delivery, proactive survey messages, human handover pauses in WhatsApp, per-officer accounts, robust anti-abuse controls, full audit attribution, and IFMS integrations need further implementation before a public production rollout. Map tiles use third-party services; review their usage policies for a production deployment.
 
 Exported packages omit credentials, passwords, test records and saved citizen data. This folder's source is the same application you run with `npm start`.
+
+## QR access
+
+Choose **Scan to access** in the sidebar for a scannable code and downloadable poster. `qr.png`, `qr.svg`, and `qr-poster.png` encode https://engbenard-fpcc-chatbot.onrender.com/ and are public assets. Upload all three when committing this update. The code opens the citizen website, not a WhatsApp conversation. Internet access and a working deployment are required. If the destination changes, regenerate these assets.

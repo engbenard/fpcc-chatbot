@@ -12,6 +12,8 @@ test('HTTP workflow: protected staff, citizen ownership, routing, resolve, surve
   const base=await new Promise((resolve,reject)=>{const timeout=setTimeout(()=>reject(Error('Server startup timed out')),10000);child.stdout.on('data',chunk=>{const match=String(chunk).match(/http:\/\/127\.0\.0\.1:(\d+)/);if(match){clearTimeout(timeout);resolve(match[0]);}});child.once('exit',code=>reject(Error('Server exited '+code)));});
   const getCookie=async()=>{const r=await fetch(base).catch(e=>{throw Error(base+' '+e.cause?.message);});assert.equal(r.status,200);return r.headers.get('set-cookie').split(';')[0];};
   const alice=await getCookie(),bob=await getCookie();
+  for(const name of ['qr.png','qr-poster.png','qr.svg']){const asset=await fetch(base+'/'+name);assert.equal(asset.status,200);assert.equal(asset.headers.get('content-type'),name.endsWith('.svg')?'image/svg+xml':'image/png');const bytes=Buffer.from(await asset.arrayBuffer());assert.ok(bytes.length>100);if(name.endsWith('.png'))assert.equal(bytes.subarray(1,4).toString(),'PNG');}
+
   async function call(p,method='GET',data,cookie=alice){const r=await fetch(base+p,{method,headers:{...(cookie?{Cookie:cookie}:{}),...(data?{'Content-Type':'application/json'}:{})},body:data?JSON.stringify(data):undefined});return {status:r.status,data:await r.json(),cookie:r.headers.get('set-cookie')?.split(';')[0]};}
   assert.equal((await call('/api/staff')).status,401);
   assert.equal((await call('/api/staff/login','POST',{password:'wrong'})).status,401);
